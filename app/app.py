@@ -105,7 +105,7 @@ class NodeHelper(DockerHelper):
         )
         connection = pika.BlockingConnection(parameters)
         channel = connection.channel()
-        channel.queue_declare(queue="autoscaling.stats")
+        channel.queue_declare(queue="autoscaling.stats", arguments={'x-message-ttl' : 600000})
         channel.basic_publish(exchange='', routing_key="autoscaling.stats", body=json.dumps(message))
         connection.close()
 

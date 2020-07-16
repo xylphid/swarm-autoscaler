@@ -12,14 +12,48 @@ import signal
 import sys
 import time
 
-logging.basicConfig(handlers=[logging.StreamHandler(sys.stdout)])
-logger = logging.getLogger("autoscaler")
-logger.setLevel(logging.DEBUG)
-
 class DockerHelper(ABC):
-    def __init__(self, client=docker.from_env()):
+    def __init__(self, client=docker.from_env(), logger=None):
         self.client = client
+        self.logger = logging.getLogger("autoscaler") if logger is None else logger
         self.states = []
+
+    @abstractmethod
+    def monitor(self):
+        pass
+
+    @abstractmethod
+    def get_items(self):
+        pass
+
+    @abstractmethod
+    def get_stats(self, item):
+        pass
+
+class ServiceHelper(DockerHelper):
+    def __init__(self, client, logger=None):
+        DockerHelper.__init__(self, client, logger=logger)
+
+    def monitor(self):
+        pass
+
+    def get_items(self):
+        try:
+            services = self.client.services.list()
+            for service in services:
+                tasks = service.tasks()
+                logging.debug(tasks)
+
+            return []
+        except:
+            return []
+
+    def get_stats(self, item):
+        return {}
+
+class NodeHelper(DockerHelper):
+    def __init__(self, client, logger=None):
+        DockerHelper.__init__(self, client, logger=logger)
 
     def monitor(self):
         items = self.get_items()
@@ -33,54 +67,14 @@ class DockerHelper(ABC):
                 continue
 
             stats = self.get_stats(item)
-            logger.debug(stats)
+            self.logger.debug(stats)
             self.send_to_queue(stats)
-
-    def send_to_queue(self, message):
-        parameters = (
-            pika.ConnectionParameters(host=os.environ["QUEUE_URL"],
-                connection_attempts=5, retry_delay=1)
-        )
-        connection = pika.BlockingConnection(parameters)
-        channel = connection.channel()
-        channel.queue_declare(queue="autoscaling.stats")
-        channel.basic_publish(exchange='', routing_key="autoscaling.stats", body=json.dumps(message))
-        connection.close()
-
-    @abstractmethod
-    def get_items(self):
-        pass
-
-    @abstractmethod
-    def get_stats(self):
-        pass
-
-class ServiceHelper(DockerHelper):
-    def __init__(self, client):
-        DockerHelper.__init__(self, client)
-
-    def get_items(self):
-        try:
-            services = self.client.services.list()
-            for service in services:
-                tasks = service.tasks()
-                logging.debug( tasks )
-
-            return []
-        except:
-            return []
-
-    def get_stats(self, item):
-        return {}
-
-class ContainerHelper(DockerHelper):
-    def __init__(self, client):
-        DockerHelper.__init__(self, client)
 
     def get_items(self):
         try:
             return self.client.containers.list(filters={"status": "running"})
         except:
+            self.logger.error("Unable to retreive containers")
             return []
 
     def get_stats(self, item):
@@ -101,38 +95,49 @@ class ContainerHelper(DockerHelper):
             }
         }
         return computed_stats
-        # return item.stats(stream=False)
+
+
+    def send_to_queue(self, message):
+        parameters = (
+            pika.ConnectionParameters(host=os.environ["QUEUE_URL"],
+                connection_attempts=5, retry_delay=1)
+        )
+        connection = pika.BlockingConnection(parameters)
+        channel = connection.channel()
+        channel.queue_declare(queue="autoscaling.stats")
+        channel.basic_publish(exchange='', routing_key="autoscaling.stats", body=json.dumps(message))
+        connection.close()
 
 class AutoScalingManager:
-    def __init__(self, client=docker.from_env(), default_module="containers"):
-        self.modules = {
-            "containers"    : ContainerHelper(client),
-            "services"      : ServiceHelper(client)
+    def __init__(self, client=docker.from_env(), default_mode="agent", logger=None):
+        self.modes = {
+            "agent"    : NodeHelper(client, logger=logger),
+            "services" : ServiceHelper(client, logger=logger)
         }
 
-        self.default_module = default_module
+        self.default_mode = default_mode
 
-    def monitor(self, module=None, delay=None):
-        module = self.default_module if not module else module
-        helper = self.modules[module]
+    def monitor(self, mode=None, delay=None):
+        mode = self.default_mode if not mode else mode
+        helper = self.modes[mode]
 
         helper.monitor()
 
-def main():
+def main(logger):
     # React on signal
     signal.signal(signal.SIGINT, terminate)
     signal.signal(signal.SIGTERM, terminate)
 
     # Define and parse arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("--monitor", "-m", type=str, help="Monitor filter", choices=["containers", "services"], default="containers")
+    parser.add_argument("--mode", "-m", type=str, help="Mode selection", choices=["agent", "services"], default="agent")
     parser.add_argument("--delay", "-d", type=int, help="Healthcheck delay (seconds)", default=10)
     args = parser.parse_args()
 
     # Monitor loop
     while 1:
-        watcher = AutoScalingManager()
-        watcher.monitor(module=args.monitor, delay=args.delay)
+        watcher = AutoScalingManager(logger=logger)
+        watcher.monitor(mode=args.mode, delay=args.delay)
         time.sleep(args.delay)
         del watcher
 
@@ -141,4 +146,9 @@ def terminate(signal, frame):
     sys.exit(0)
 
 if __name__ == "__main__":
-    main()
+    # Define logger
+    logging.basicConfig(handlers=[logging.StreamHandler(sys.stdout)])
+    logger = logging.getLogger("autoscaler")
+    logger.setLevel(logging.DEBUG)
+
+    main(logger)

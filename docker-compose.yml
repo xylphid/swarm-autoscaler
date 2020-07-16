@@ -27,6 +27,7 @@ services:
     restart: always
 
   agent:
+    command: --mode=agent
     build: .
     depends_on:
       - queue
@@ -38,6 +39,27 @@ services:
       restart_policy:
         condition: any
     # entrypoint: ls -l /opt/swarm-autoscaling
+    environment:
+      PYTHONUNBUFFERED: 1
+      QUEUE_URL: queue
+    image: xylphid/swarm-autoscale:nightly
+    networks:
+      - internal
+    restart: always
+    volumes:
+      - //var/run/docker.sock:/var/run/docker.sock
+
+  orchestrator:
+    command: --mode=orchestrator
+    build: .
+    depends_on:
+      - queue
+    deploy:
+      placement:
+        constraints: [node.hostname == dkrpi-1]
+      replicas: 1
+      restart_policy:
+        condition: any
     environment:
       PYTHONUNBUFFERED: 1
       QUEUE_URL: queue

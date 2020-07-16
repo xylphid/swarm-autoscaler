@@ -35,17 +35,16 @@ class ServiceHelper(DockerHelper):
         DockerHelper.__init__(self, client, logger=logger)
 
     def monitor(self):
-        pass
+        items = self.get_items()
+        for item in items:
+            self.logger.debug(item.attrs)
+            # tasks = item.tasks()
 
     def get_items(self):
         try:
-            services = self.client.services.list()
-            for service in services:
-                tasks = service.tasks()
-                logging.debug(tasks)
-
-            return []
+            return self.client.services.list()
         except:
+            self.logger.error("Unable to retreive services")
             return []
 
     def get_stats(self, item):
@@ -70,6 +69,7 @@ class NodeHelper(DockerHelper):
             self.logger.debug(stats)
             self.send_to_queue(stats)
 
+    # Get running containers
     def get_items(self):
         try:
             return self.client.containers.list(filters={"status": "running"})
@@ -77,6 +77,7 @@ class NodeHelper(DockerHelper):
             self.logger.error("Unable to retreive containers")
             return []
 
+    # Compute statistics for a task
     def get_stats(self, item):
         stats = item.stats(stream=False)
         cpu_usage = stats["cpu_stats"]["system_cpu_usage"]
@@ -111,8 +112,8 @@ class NodeHelper(DockerHelper):
 class AutoScalingManager:
     def __init__(self, client=docker.from_env(), default_mode="agent", logger=None):
         self.modes = {
-            "agent"    : NodeHelper(client, logger=logger),
-            "services" : ServiceHelper(client, logger=logger)
+            "agent"         : NodeHelper(client, logger=logger),
+            "orchestrator"  : ServiceHelper(client, logger=logger)
         }
 
         self.default_mode = default_mode
@@ -130,7 +131,7 @@ def main(logger):
 
     # Define and parse arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", "-m", type=str, help="Mode selection", choices=["agent", "services"], default="agent")
+    parser.add_argument("--mode", "-m", type=str, help="Mode selection", choices=["agent", "orchestrator"], default="orchestrator")
     parser.add_argument("--delay", "-d", type=int, help="Healthcheck delay (seconds)", default=10)
     args = parser.parse_args()
 

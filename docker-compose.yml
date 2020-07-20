@@ -36,6 +36,9 @@ services:
         constraints: [node.hostname == dkrpi-1]
       # mode: global
       replicas: 1
+      resources:
+        limits:
+          memory: 50M
       restart_policy:
         condition: any
     # entrypoint: ls -l /opt/swarm-autoscaling

@@ -92,8 +92,11 @@ class NodeHelper(DockerHelper):
     # Compute statistics for a task
     def get_stats(self, item):
         stats = item.stats(stream=False)
-        cpu_usage = stats["cpu_stats"]["system_cpu_usage"]
-        cpu_total = stats["cpu_stats"]["cpu_usage"]["total_usage"]
+        self.logger.debug(stats)
+        cpu_limit = stats["cpu_stats"]["system_cpu_usage"]
+        cpu_usage = stats["cpu_stats"]["cpu_usage"]["total_usage"]
+        memory_usage = stats["memory_stats"]["usage"]
+        memory_limit = stats["memory_stats"]["limit"]
 
         computed_stats = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -103,8 +106,8 @@ class NodeHelper(DockerHelper):
                 "task": item.attrs["Config"]["Labels"]["com.docker.swarm.task.id"],
             },
             "stats": {
-                "cpu"   :   round(float(cpu_total / cpu_usage * 100), 2),
-                "memory":   ""
+                "cpu"   :   round(float(cpu_usage / cpu_limit * 100), 2),
+                "memory":   round(float(memory_usage / memory_limit * 100), 2)
             }
         }
         return computed_stats

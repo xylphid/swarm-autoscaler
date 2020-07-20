@@ -35,10 +35,22 @@ class ServiceHelper(DockerHelper):
         DockerHelper.__init__(self, client, logger=logger)
 
     def monitor(self):
+        parameters = (
+            pika.ConnectionParameters(host=os.environ["QUEUE_URL"],
+                connection_attempts=5, retry_delay=1)
+        )
+        connection = pika.BlockingConnection(parameters)
+        channel = connection.channel()
+        channel.basic_consume(queue='autoscaling.stats', on_message_callback=self.compute_stats, auto_ack=True)
+        channel.start_consuming()
+
+
+    def compute_stats(self, channel, method, properties, body):
         items = self.get_items()
-        for item in items:
-            self.logger.debug(item.attrs)
-            # tasks = item.tasks()
+        # for item in items:
+        #     self.logger.debug(item.attrs)
+        #     ['Spec']['Mode']['Replicated']['Replicas']
+        self.logger.debug(f'{body} is received')
 
     def get_items(self):
         try:

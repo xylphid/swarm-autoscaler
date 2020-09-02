@@ -90,6 +90,36 @@ class ServiceHelper(DockerHelper):
             service.scale(self.get_service_replicas(service) - 1)
             print(f'Scaling down service {self.get_service_name(service)}')
 
+    def get_items(self):
+        try:
+            return self.client.services.list()
+        except:
+            self.logger.error("Unable to retreive services")
+            return []
+
+    def get_stats(self, item):
+        cpu, mem = [], []
+        for metrics in item.values():
+            cpu.append(metrics["cpu"])
+            mem.append(metrics["mem"])
+
+        return cpu, mem
+
+    def is_service_replicated(self, service):
+        is_replicated = False
+        try:
+            is_replicated = service.attrs['Spec']['Mode']['Replicated']
+        except:
+            pass
+
+        return is_replicated
+
+    def get_service_name(self, service):
+        return service.attrs['Spec']['Name']
+
+    def get_service_replicas(self, service):
+        return service.attrs['Spec']['Mode']['Replicated']['Replicas'];
+
     def mergeDict(self, dict1, dict2):
         ''' Merge dictionaries and keep values of common keys in list'''
         dict3 = {**dict1, **dict2}
@@ -123,36 +153,6 @@ class ServiceHelper(DockerHelper):
         for service in [item for item in self.states.keys() if item not in services]:
             del(self.states[service])
 
-    def get_items(self):
-        try:
-            return self.client.services.list()
-        except:
-            self.logger.error("Unable to retreive services")
-            return []
-
-    def get_stats(self, item):
-        cpu, mem = [], []
-        for metrics in item.values():
-            cpu.append(metrics["cpu"])
-            mem.append(metrics["mem"])
-
-        return cpu, mem
-
-    def is_service_replicated(self, service):
-        is_replicated = False
-        try:
-            is_replicated = service.attrs['Spec']['Mode']['Replicated']
-        except:
-            pass
-
-        return is_replicated
-
-    def get_service_name(self, service):
-        return service.attrs['Spec']['Name']
-
-    def get_service_replicas(self, service):
-        return service.attrs['Spec']['Mode']['Replicated']['Replicas'];
-
 class NodeHelper(DockerHelper):
     def __init__(self, client, logger=None):
         DockerHelper.__init__(self, client, logger=logger)
@@ -175,7 +175,7 @@ class NodeHelper(DockerHelper):
     # Get running containers
     def get_items(self):
         try:
-            return self.client.containers.list(filters={"status": "running"})
+            return self.client.containers.list(filters={"status": "running", "label":["io.xylphid.autoscaling=true"]})
         except:
             self.logger.error("Unable to retreive containers")
             return []

@@ -32,9 +32,9 @@ services:
     depends_on:
       - queue
     deploy:
-      placement:
-        constraints: [node.hostname == dkrpi-1]
-      # mode: global
+      # placement:
+        # constraints: [node.hostname == dkrpi-1]
+      mode: global
       replicas: 1
       resources:
         limits:

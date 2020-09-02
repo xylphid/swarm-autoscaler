@@ -66,11 +66,7 @@ class ServiceHelper(DockerHelper):
         ''' Extract metrics for each service's task '''
         for service_name, content in self.states.items():
             for task in content["tasks"].values():
-                cpu = []
-                mem = []
-                for metrics in task["metrics"].values():
-                    cpu.append(metrics["cpu"])
-                    mem.append(metrics["mem"])
+                cpu, mem = self.get_stats(task["metrics"])
 
                 if self.isOverloading(cpu, mem):
                     self.scale_up(content["id"])
@@ -135,7 +131,12 @@ class ServiceHelper(DockerHelper):
             return []
 
     def get_stats(self, item):
-        return {}
+        cpu, mem = [], []
+        for metrics in item.values():
+            cpu.append(metrics["cpu"])
+            mem.append(metrics["mem"])
+
+        return cpu, mem
 
     def is_service_replicated(self, service):
         is_replicated = False

@@ -8,32 +8,28 @@ networks:
 services:
   queue:
     deploy:
-      labels:
-        traefik.enable: "true"
-        traefik.docker.network: broadcast-net
-        traefik.http.routers.rabbitmq.rule: Host(`dev.xylphid.net`)
-        traefik.http.routers.rabbitmq.entrypoints: https
-        traefik.http.routers.rabbitmq.tls: "true"
-        traefik.http.routers.rabbitmq.tls.certresolver: LE
-        traefik.http.services.rabbitmq.loadbalancer.server.port: "15672"
+      # labels:
+      #   traefik.enable: "true"
+      #   traefik.docker.network: broadcast-net
+      #   traefik.http.routers.rabbitmq.rule: Host(`dev.xylphid.net`)
+      #   traefik.http.routers.rabbitmq.entrypoints: https
+      #   traefik.http.routers.rabbitmq.tls: "true"
+      #   traefik.http.routers.rabbitmq.tls.certresolver: LE
+      #   traefik.http.services.rabbitmq.loadbalancer.server.port: "15672"
       replicas: 1
       restart_policy:
         condition: any
-    # image: rabbitmq:3.8.5-alpine
-    image: rabbitmq:3.8.5-management-alpine
+    image: rabbitmq:3.8.5-alpine
+    # image: rabbitmq:3.8.5-management-alpine
     networks:
       - broadcast-net
       - internal
-    restart: always
 
   agent:
     command: --mode=agent
-    build: .
     depends_on:
       - queue
     deploy:
-      # placement:
-        # constraints: [node.hostname == dkrpi-1]
       mode: global
       replicas: 1
       resources:
@@ -41,34 +37,30 @@ services:
           memory: 50M
       restart_policy:
         condition: any
-    # entrypoint: ls -l /opt/swarm-autoscaling
     environment:
       PYTHONUNBUFFERED: 1
       QUEUE_URL: queue
-    image: xylphid/swarm-autoscale:nightly
+    image: registry.xylphid.net/swarm-autoscaler:1.0.0
     networks:
       - internal
-    restart: always
     volumes:
       - //var/run/docker.sock:/var/run/docker.sock
 
   orchestrator:
     command: --mode=orchestrator
-    build: .
     depends_on:
       - queue
     deploy:
       placement:
-        constraints: [node.hostname == dkrpi-1]
+        constraints: [node.role == manager]
       replicas: 1
       restart_policy:
         condition: any
     environment:
       PYTHONUNBUFFERED: 1
       QUEUE_URL: queue
-    image: xylphid/swarm-autoscale:nightly
+    image: registry.xylphid.net/swarm-autoscaler:1.0.0
     networks:
       - internal
-    restart: always
     volumes:
       - //var/run/docker.sock:/var/run/docker.sock

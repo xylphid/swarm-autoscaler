@@ -86,7 +86,7 @@ class ServiceHelper(DockerHelper):
                     content["scaleTime"] = datetime.now() + timedelta(minutes=2)
 
     def isOverloading(self, cpu, mem, scaleTime):
-        limit = 20
+        limit = 50
         canScale = scaleTime is None or scaleTime < datetime.now()
         cpuOverload = True if len(cpu) and mean(cpu) > limit else False
         memOverload = True if len(mem) and mean(mem) > limit else False

@@ -71,34 +71,43 @@ class ServiceHelper(DockerHelper):
             except:
                 pass
 
+            cpu, mem = [], []
             for task in content["tasks"].values():
-                cpu, mem = self.get_stats(task["metrics"])
+                stats = self.get_stats(task["metrics"])
+                cpu.extend(stats[0])
+                mem.extend(stats[1])
 
-                logger.debug(f'{service_name} is overloading : {self.isOverloading(cpu, mem, scaleTime)}')
                 if self.isOverloading(cpu, mem, scaleTime):
                     self.scale_up(content["id"])
-                    content["scaleTime"] = datetime.now()
-                    task["metrics"] = []
-                elif scaleTime is None or scaleTime > (datetime.now() - timedelta(minutes=5)):
+                    content["scaleTime"] = datetime.now() + timedelta(minutes=5)
+                    task["metrics"] = {}
+                elif scaleTime is None or scaleTime < datetime.now():
                     self.scale_down(content["id"])
+                    content["scaleTime"] = datetime.now() + timedelta(minutes=2)
 
     def isOverloading(self, cpu, mem, scaleTime):
-        return (scaleTime is None or scaleTime > (datetime.now() - timedelta(minutes=5))
-            and (len(cpu) and mean(cpu) > 50) or (len(mem) and mean(mem) > 50))
+        limit = 20
+        canScale = scaleTime is None or scaleTime < datetime.now()
+        cpuOverload = True if len(cpu) and mean(cpu) > limit else False
+        memOverload = True if len(mem) and mean(mem) > limit else False
+        self.logger.debug(f'ScaleTime : {canScale} - CPU : {len(cpu)} - MEM : {len(mem)}')
+
+        return canScale and (cpuOverload or memOverload)
 
     def scale_up(self, service_id):
-        ''' Scale up if possible (mode = replicated) '''
+        ''' Scale up if possible (mode = replicated, fully replicated) '''
         service = self.client.services.get(service_id)
-        if self.is_service_replicated(service):
+        if self.is_service_replicated(service) and self.is_service_fully_replicated(service):
+            self.logger.info(f'Scaling up service {self.get_service_name(service)}')
             service.scale(self.get_service_replicas(service) + 1)
-            logger.info(f'Scaling up service {self.get_service_name(service)}')
 
     def scale_down(self, service_id):
         ''' Scale down if possible (mode = replicated, scale > 1) '''
         service = self.client.services.get(service_id)
         if self.is_service_replicated(service) and self.get_service_replicas(service) > 1:
-            service.scale(self.get_service_replicas(service) - 1)
-            logger.info(f'Scaling down service {self.get_service_name(service)}')
+            replicas = self.get_service_replicas(service) -1
+            self.logger.info(f'Scaling down service {self.get_service_name(service)} ({replicas})')
+            service.scale(replicas)
 
     def get_items(self):
         try:
@@ -123,6 +132,16 @@ class ServiceHelper(DockerHelper):
             pass
 
         return is_replicated
+
+    def is_service_fully_replicated(self, service):
+        ''' Check if service is fully replicated (all tasks are running) '''
+        is_fully_replicated = True
+        service.reload()
+        tasks = service.tasks(filters={"desired-state":"running"})
+        for task in tasks:
+            is_fully_replicated = is_fully_replicated if task["Status"]["State"] == "running" else False
+
+        return is_fully_replicated
 
     def get_service_name(self, service):
         return service.attrs['Spec']['Name']
@@ -193,7 +212,6 @@ class NodeHelper(DockerHelper):
     # Compute statistics for a task
     def get_stats(self, item):
         stats = item.stats(stream=False)
-        self.logger.debug(stats)
         cpu_limit = stats["cpu_stats"]["system_cpu_usage"]
         cpu_usage = stats["cpu_stats"]["cpu_usage"]["total_usage"]
         memory_usage = stats["memory_stats"]["usage"]
@@ -249,11 +267,16 @@ def main(logger):
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", "-m", type=str, help="Mode selection", choices=["agent", "orchestrator"], default="orchestrator")
     parser.add_argument("--delay", "-d", type=int, help="Healthcheck delay (seconds)", default=10)
+    parser.add_argument("--debug", help="Set debug mode", action="store_true")
     args = parser.parse_args()
+
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
 
     # Monitor loop
     logger.info("Starting autoscaler")
     logger.info(f"Mode : {args.mode}")
+    logger.debug(f'Debug mode activated')
     while 1:
         watcher = AutoScalingManager(logger=logger)
         watcher.monitor(mode=args.mode, delay=args.delay)
@@ -266,9 +289,9 @@ def terminate(signal, frame):
 
 if __name__ == "__main__":
     # Define logger
-    LOG_FORMAT = '%(asctime)-15s %(message)s'
+    LOG_FORMAT = '%(asctime)-15s - %(levelname)s - %(message)s'
     logging.basicConfig(handlers=[logging.StreamHandler(sys.stdout)], format=LOG_FORMAT)
     logger = logging.getLogger("autoscaler")
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
 
     main(logger)

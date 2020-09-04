@@ -31,7 +31,6 @@ services:
       - queue
     deploy:
       mode: global
-      replicas: 1
       resources:
         limits:
           memory: 50M

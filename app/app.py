@@ -65,30 +65,40 @@ class ServiceHelper(DockerHelper):
     def check_stats(self):
         ''' Extract metrics for each service's task '''
         for service_name, content in self.states.items():
+            scaleTime = None
+            try:
+                scaleTime = content.get('scaleTime', None)
+            except:
+                pass
+
             for task in content["tasks"].values():
                 cpu, mem = self.get_stats(task["metrics"])
 
-                if self.isOverloading(cpu, mem):
+                logger.debug(f'{service_name} is overloading : {self.isOverloading(cpu, mem, scaleTime)}')
+                if self.isOverloading(cpu, mem, scaleTime):
                     self.scale_up(content["id"])
-                else:
+                    content["scaleTime"] = datetime.now()
+                    task["metrics"] = []
+                elif scaleTime is None or scaleTime > (datetime.now() - timedelta(minutes=5)):
                     self.scale_down(content["id"])
 
-    def isOverloading(self, cpu, mem):
-        return mean(cpu) > 50 or mean(mem) > 50
+    def isOverloading(self, cpu, mem, scaleTime):
+        return (scaleTime is None or scaleTime > (datetime.now() - timedelta(minutes=5))
+            and (len(cpu) and mean(cpu) > 50) or (len(mem) and mean(mem) > 50))
 
     def scale_up(self, service_id):
         ''' Scale up if possible (mode = replicated) '''
         service = self.client.services.get(service_id)
         if self.is_service_replicated(service):
             service.scale(self.get_service_replicas(service) + 1)
-            print(f'Scaling up service {self.get_service_name(service)}')
+            logger.info(f'Scaling up service {self.get_service_name(service)}')
 
     def scale_down(self, service_id):
         ''' Scale down if possible (mode = replicated, scale > 1) '''
         service = self.client.services.get(service_id)
         if self.is_service_replicated(service) and self.get_service_replicas(service) > 1:
             service.scale(self.get_service_replicas(service) - 1)
-            print(f'Scaling down service {self.get_service_name(service)}')
+            logger.info(f'Scaling down service {self.get_service_name(service)}')
 
     def get_items(self):
         try:
@@ -242,6 +252,8 @@ def main(logger):
     args = parser.parse_args()
 
     # Monitor loop
+    logger.info("Starting autoscaler")
+    logger.info(f"Mode : {args.mode}")
     while 1:
         watcher = AutoScalingManager(logger=logger)
         watcher.monitor(mode=args.mode, delay=args.delay)
@@ -254,7 +266,8 @@ def terminate(signal, frame):
 
 if __name__ == "__main__":
     # Define logger
-    logging.basicConfig(handlers=[logging.StreamHandler(sys.stdout)])
+    LOG_FORMAT = '%(asctime)-15s %(message)s'
+    logging.basicConfig(handlers=[logging.StreamHandler(sys.stdout)], format=LOG_FORMAT)
     logger = logging.getLogger("autoscaler")
     logger.setLevel(logging.DEBUG)
 
